@@ -8,7 +8,7 @@
             "program": "${workspaceRoot}/cache_sim.exe",
             "args": ["1024", "dm", "uc"],
             "stopAtEntry": false,
-            "cwd": "C:\\Users\\nikla\\OneDrive - NTNU\\Diverse\\GitHub\\Lab 2",
+            "cwd": "C:\\Users\\nikla\\OneDrive - NTNU\\Diverse\\GitHub\\TDT4258-Lab-2",
             "environment": [],
             "externalConsole": false,
             "MIMode": "gdb",
