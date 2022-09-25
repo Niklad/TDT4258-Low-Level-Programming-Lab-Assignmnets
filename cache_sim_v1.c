@@ -9,7 +9,7 @@ typedef enum { uc, sc } cache_org_t;
 typedef enum { instruction, data } access_t;
 
 typedef struct {
-  uint32_t address;
+  uint64_t address;
   access_t accesstype;
 } mem_access_t;
 
@@ -23,8 +23,8 @@ typedef struct {
 
 // DECLARE CACHES AND COUNTERS FOR THE STATS HERE
 
-uint32_t cache_size;
-uint32_t block_size = 64;
+uint64_t cache_size;
+uint64_t BLOCK_SIZE = 64;
 cache_map_t cache_mapping;
 cache_org_t cache_org;
 
@@ -138,7 +138,7 @@ mem_access_t read_transaction(FILE* ptr_file) {
     /* Get the address */
     token = strtok(string, " \n");
 
-    access.address = (uint32_t)strtol(token, NULL, 16);
+    access.address = (uint64_t)strtol(token, NULL, 16);
     printf("Returning access: %li, %x.\n", access.address, access.accesstype);
     return access;
   }

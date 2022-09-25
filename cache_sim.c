@@ -22,8 +22,8 @@ typedef struct {
 // DECLARE CACHES AND COUNTERS FOR THE STATS HERE
 
 uint32_t cache_size;
-const uint32_t block_size = 64;
-const uint32_t address_size = 32;
+const uint32_t BLOCK_SIZE = 64;
+const uint32_t ADDRESS_SIZE = 32;
 cache_map_t cache_mapping;
 cache_org_t cache_org;
 
@@ -54,7 +54,7 @@ void main(int argc, char** argv) {
 
   read_params_and_init(argc, argv);
 
-  FILE* ptr_file = read_access_from_file("mem_trace.txt");
+  FILE* ptr_file = read_access_from_file("mem_trace2.txt");
 
   // Branch to the respective cache function given the cache parameters
   if (cache_mapping == dm) {
@@ -149,10 +149,18 @@ void dm_uc_cache(FILE* ptr_file) {
   mem_access_t access;
 
   // Generate cache of specified size
-  uint32_t num_of_blocks = cache_size/block_size;
+  uint32_t num_of_blocks = cache_size/BLOCK_SIZE;
   uint32_t index_num_of_bits = floor(log2(num_of_blocks));
-  uint32_t block_offset_num_of_bits = floor(log2(block_size));         // 6 bits for indexing into 64B
-  uint32_t tag_num_of_bits = address_size - block_offset_num_of_bits - index_num_of_bits;
+  const uint32_t BLOCK_OFFSET_NUM_OF_BITS = floor(log2(BLOCK_SIZE));         // 6 bits for indexing into 64B
+  uint32_t tag_num_of_bits = ADDRESS_SIZE - BLOCK_OFFSET_NUM_OF_BITS - index_num_of_bits;
+
+  // Allocate memory for the cache address storage
+  uint32_t* cache = (uint32_t*) calloc(num_of_blocks, sizeof(uint32_t));
+
+  // Ones in the index bits for extracting the index from the address
+  uint32_t index_mask = ((1 << index_num_of_bits) - 1) << (BLOCK_OFFSET_NUM_OF_BITS);  
+  uint32_t tag_mask = ((1 << tag_num_of_bits) - 1) << (BLOCK_OFFSET_NUM_OF_BITS + index_num_of_bits);
+  uint32_t valid_bit_mask = 1 << (BLOCK_OFFSET_NUM_OF_BITS + index_num_of_bits + tag_num_of_bits);         
 
 
   /* Loop until whole trace file has been read */
@@ -161,18 +169,22 @@ void dm_uc_cache(FILE* ptr_file) {
     access = read_transaction(ptr_file);
     // If no transactions left, break out of loop
     if (access.address == 0) break;
-    printf("%d %x\n", access.accesstype, access.address);
+    // printf("%d %x\n", access.accesstype, access.address);
+
     /* Do a cache access */
-    // ADD YOUR CODE HERE
-    if ((access.address&(0x3FFFFF<<address_size)) == (0x8cda3fa8&(0x3FFFFF<<address_size))) {
+    if ((access.address & tag_mask) == cache[access.address & index_mask]) {
       // Hit!
+      if (cache[access.address & (index_mask)] & valid_bit_mask) {
       cache_statistics.hits++;
+      }
     } else {
-      // no hit
+      // No hit
+      cache[access.address & index_mask] = access.address & tag_mask;
     }
 
     cache_statistics.accesses++;
   }
+  free(cache);
 }
 
 void dm_sc_cache(FILE* ptr_file) {
