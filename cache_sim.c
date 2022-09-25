@@ -54,7 +54,7 @@ void main(int argc, char** argv) {
 
   read_params_and_init(argc, argv);
 
-  FILE* ptr_file = read_access_from_file("mem_trace2.txt");
+  FILE* ptr_file = read_access_from_file("mem_trace.txt");
 
   // Branch to the respective cache function given the cache parameters
   if (cache_mapping == dm) {
@@ -160,7 +160,7 @@ void dm_uc_cache(FILE* ptr_file) {
   // Ones in the index bits for extracting the index from the address
   uint32_t index_mask = ((1 << index_num_of_bits) - 1) << (BLOCK_OFFSET_NUM_OF_BITS);  
   uint32_t tag_mask = ((1 << tag_num_of_bits) - 1) << (BLOCK_OFFSET_NUM_OF_BITS + index_num_of_bits);
-  uint32_t valid_bit_mask = 1 << (BLOCK_OFFSET_NUM_OF_BITS + index_num_of_bits + tag_num_of_bits);         
+  uint32_t valid_bit_mask = (1 << (BLOCK_OFFSET_NUM_OF_BITS + index_num_of_bits + tag_num_of_bits));
 
 
   /* Loop until whole trace file has been read */
@@ -169,17 +169,20 @@ void dm_uc_cache(FILE* ptr_file) {
     access = read_transaction(ptr_file);
     // If no transactions left, break out of loop
     if (access.address == 0) break;
-    // printf("%d %x\n", access.accesstype, access.address);
+    printf("%d %x\n", access.accesstype, access.address);
 
     /* Do a cache access */
     if ((access.address & tag_mask) == cache[access.address & index_mask]) {
       // Hit!
-      if (cache[access.address & (index_mask)] & valid_bit_mask) {
+      printf("Hit!\n");
+      // if (cache[access.address & (index_mask)] & valid_bit_mask) {
       cache_statistics.hits++;
-      }
+      // }
     } else {
       // No hit
+      printf("No hit!\n");
       cache[access.address & index_mask] = access.address & tag_mask;
+      // cache[access.address & (index_mask)] |= valid_bit_mask;
     }
 
     cache_statistics.accesses++;
