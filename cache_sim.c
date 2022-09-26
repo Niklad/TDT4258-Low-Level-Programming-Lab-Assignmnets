@@ -19,6 +19,11 @@ typedef struct {
   uint64_t hits;
 } cache_stat_t;
 
+typedef struct {
+  uint8_t valid;
+  uint32_t tag;
+} cache_line_t;
+
 // DECLARE CACHES AND COUNTERS FOR THE STATS HERE
 
 uint32_t cache_size;
