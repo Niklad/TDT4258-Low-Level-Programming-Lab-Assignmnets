@@ -49,7 +49,7 @@ void fa_sc_cache(FILE* ptr_file);
 
 void access_dm(cache_line_t* cache, uint32_t access_tag, uint32_t access_index);
 
-void access_fa(cache_line_t* cache, uint32_t access_tag, uint32_t num_of_cache_lines);
+void access_fa(cache_line_t* cache, uint32_t access_tag, uint32_t num_of_cache_lines, access_t access_type);
 
 mem_access_t read_transaction(FILE* ptr_file);
 
@@ -217,10 +217,7 @@ void dm_sc_cache(FILE* ptr_file) {
       access_dm(instruction_cache, access_tag, access_index);
     } else if (access.accesstype == data) {
       access_dm(data_cache, access_tag, access_index);
-    } else {
-      printf("Unknown access type\n");
-      exit(0);
-    }
+    } 
   }
   free(instruction_cache);
   free(data_cache);
@@ -252,7 +249,7 @@ void fa_uc_cache(FILE* ptr_file) {
     uint32_t access_tag = (access.address >> (BLOCK_OFFSET_NUM_OF_BITS)) & tag_mask;
 
     /* Do a cache access */ 
-    access_fa(cache, access_tag, num_of_cache_lines);
+    access_fa(cache, access_tag, num_of_cache_lines, access.accesstype);
   }
   free(cache);
 }
@@ -261,14 +258,17 @@ void fa_uc_cache(FILE* ptr_file) {
 void fa_sc_cache(FILE* ptr_file) {
   mem_access_t access;
 
-  // Set cache size and cacheline structure
+  // Set cache size
+  uint32_t split_cache_size = cache_size / 2;
   uint32_t num_of_cache_lines = cache_size / BLOCK_SIZE;
-
+  
+  // Set cache line structure
   const uint32_t BLOCK_OFFSET_NUM_OF_BITS = floor(log2(BLOCK_SIZE));  // 6 bits for indexing to 64B
   uint32_t tag_num_of_bits = ADDRESS_SIZE - BLOCK_OFFSET_NUM_OF_BITS;
 
   // Allocate memory for cache valid bit and tag storage
-  cache_line_t* cache = (cache_line_t*)calloc(num_of_cache_lines, sizeof(cache_line_t));
+  cache_line_t* instruction_cache = (cache_line_t*)calloc(num_of_cache_lines, sizeof(cache_line_t));
+  cache_line_t* data_cache = (cache_line_t*)calloc(num_of_cache_lines, sizeof(cache_line_t));
   
   // Generate mask bits
   uint32_t tag_mask = ((1 << tag_num_of_bits) - 1);
@@ -282,10 +282,15 @@ void fa_sc_cache(FILE* ptr_file) {
     // Move the relevant bits for tag and index to the right and mask them
     uint32_t access_tag = (access.address >> (BLOCK_OFFSET_NUM_OF_BITS)) & tag_mask;
 
-    /* Do a cache access */ 
-    access_fa(cache, access_tag, num_of_cache_lines);
+    /* Do a cache access */
+    if (access.accesstype == instruction) { 
+      access_fa(instruction_cache, access_tag, num_of_cache_lines, access.accesstype);
+    } else if (access.accesstype == data) {
+      access_fa(data_cache, access_tag, num_of_cache_lines, access.accesstype);
+    } 
   }
-  free(cache);
+  free(instruction_cache);
+  free(data_cache);
 }
 
 
@@ -302,33 +307,8 @@ void access_dm(cache_line_t* cache, uint32_t access_tag, uint32_t access_index) 
 }
 
 
-void access_fa(cache_line_t* cache, uint32_t access_tag, uint32_t num_of_cache_lines) {
-  /* Do a cache access for a fully associative cache
-
-  static fifo_index = 0
-  hit_flag = 0;
-
-  for cache_line in cache:
-    if cache_line.tag == access_tag:
-      cache_statistics.hits++
-      hit_flag = 1
-      break
-    else if cache_line.tag == 0
-      break
-  
-  if !hit:
-    cache[fifo_index].tag = access_tag
-
-    fifo_index++
-    if fifo_index == num_of_cache_lines:
-      fifo_index = 0
-
-    hit_flag = 0
-    
-  access_statistics.accesses++
-  */
-
-  static uint32_t fifo_index = 0;
+void access_fa(cache_line_t* cache, uint32_t access_tag, uint32_t num_of_cache_lines, access_t accesstype) {
+  /* Do a cache access for a fully associative cache */
   uint8_t hit_flag = 0;
 
   for (uint32_t i = 0; i < num_of_cache_lines; i++) {
@@ -342,13 +322,29 @@ void access_fa(cache_line_t* cache, uint32_t access_tag, uint32_t num_of_cache_l
   }
 
   if (!hit_flag) {
-    cache[fifo_index].tag = access_tag;
+    if (cache_org == uc) {
+      static uint32_t fifo_index_uc = 0;
+      cache[fifo_index_uc].tag = access_tag;
 
-    fifo_index++;
-    if (fifo_index == num_of_cache_lines) {
-      fifo_index = 0;
+      fifo_index_uc++;
+      if (fifo_index_uc == num_of_cache_lines) {
+        fifo_index_uc = 0;
+      }
+    } else if(accesstype == instruction) {
+      static uint32_t fifo_index_instruction = 0;
+      cache[fifo_index_instruction].tag = access_tag;
+      fifo_index_instruction++;
+      if (fifo_index_instruction == num_of_cache_lines) {
+        fifo_index_instruction = 0;
+      }
+    } else if (accesstype == data) {
+      static uint32_t fifo_index_data = 0;
+      cache[fifo_index_data].tag = access_tag;
+      fifo_index_data++;
+      if (fifo_index_data == num_of_cache_lines) {
+        fifo_index_data = 0;
+      }
     }
-
     hit_flag = 0;
   }
 
