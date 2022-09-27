@@ -182,10 +182,11 @@ void dm_uc_cache(FILE* ptr_file) {
 void dm_sc_cache(FILE* ptr_file) {
   mem_access_t access;
 
-  // Set cache size and cacheline structure
+  // Set cache size
   uint32_t split_cache_size = cache_size / 2;
   uint32_t num_of_cache_lines = cache_size / BLOCK_SIZE;
   
+  // Set cache line structure
   uint32_t index_num_of_bits = floor(log2(num_of_cache_lines));
   const uint32_t BLOCK_OFFSET_NUM_OF_BITS = floor(log2(BLOCK_SIZE));  // 6 bits for indexing to 64B
   uint32_t tag_num_of_bits = ADDRESS_SIZE - BLOCK_OFFSET_NUM_OF_BITS - index_num_of_bits;
