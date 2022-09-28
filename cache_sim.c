@@ -49,7 +49,7 @@ void fa_sc_cache(FILE* ptr_file);
 
 void access_dm(cache_line_t* cache, uint32_t access_tag, uint32_t access_index);
 
-void access_fa(cache_line_t* cache, uint32_t access_tag, uint32_t num_of_cache_lines, access_t access_type);
+void access_fa(uint32_t* cache, uint32_t access_tag, uint32_t num_of_cache_lines, access_t access_type);
 
 mem_access_t read_transaction(FILE* ptr_file);
 
@@ -234,7 +234,7 @@ void fa_uc_cache(FILE* ptr_file) {
   uint32_t tag_num_of_bits = ADDRESS_SIZE - BLOCK_OFFSET_NUM_OF_BITS;
 
   // Allocate memory for cache valid bit and tag storage
-  cache_line_t* cache = (cache_line_t*)calloc(num_of_cache_lines, sizeof(cache_line_t));
+  uint32_t* cache = (uint32_t*)calloc(num_of_cache_lines, sizeof(uint32_t));
   
   // Generate mask bits
   uint32_t tag_mask = ((1 << tag_num_of_bits) - 1);
@@ -267,8 +267,8 @@ void fa_sc_cache(FILE* ptr_file) {
   uint32_t tag_num_of_bits = ADDRESS_SIZE - BLOCK_OFFSET_NUM_OF_BITS;
 
   // Allocate memory for cache valid bit and tag storage
-  cache_line_t* instruction_cache = (cache_line_t*)calloc(num_of_cache_lines, sizeof(cache_line_t));
-  cache_line_t* data_cache = (cache_line_t*)calloc(num_of_cache_lines, sizeof(cache_line_t));
+  uint32_t* instruction_cache = (uint32_t*)calloc(num_of_cache_lines, sizeof(uint32_t));
+  uint32_t* data_cache = (uint32_t*)calloc(num_of_cache_lines, sizeof(uint32_t));
   
   // Generate mask bits
   uint32_t tag_mask = ((1 << tag_num_of_bits) - 1);
@@ -307,16 +307,16 @@ void access_dm(cache_line_t* cache, uint32_t access_tag, uint32_t access_index) 
 }
 
 
-void access_fa(cache_line_t* cache, uint32_t access_tag, uint32_t num_of_cache_lines, access_t accesstype) {
+void access_fa(uint32_t* cache, uint32_t access_tag, uint32_t num_of_cache_lines, access_t accesstype) {
   /* Do a cache access for a fully associative cache */
   uint8_t hit_flag = 0;
 
   for (uint32_t i = 0; i < num_of_cache_lines; i++) {
-    if (cache[i].tag == access_tag) {
+    if (cache[i] == access_tag) {
       cache_statistics.hits++;
       hit_flag = 1;
       break;
-    } else if (cache[i].tag == 0) {
+    } else if (cache[i] == 0) {
       break;
     }
   }
@@ -324,7 +324,7 @@ void access_fa(cache_line_t* cache, uint32_t access_tag, uint32_t num_of_cache_l
   if (!hit_flag) {
     if (cache_org == uc) {
       static uint32_t fifo_index_uc = 0;
-      cache[fifo_index_uc].tag = access_tag;
+      cache[fifo_index_uc] = access_tag;
 
       fifo_index_uc++;
       if (fifo_index_uc == num_of_cache_lines) {
@@ -332,14 +332,14 @@ void access_fa(cache_line_t* cache, uint32_t access_tag, uint32_t num_of_cache_l
       }
     } else if(accesstype == instruction) {
       static uint32_t fifo_index_instruction = 0;
-      cache[fifo_index_instruction].tag = access_tag;
+      cache[fifo_index_instruction] = access_tag;
       fifo_index_instruction++;
       if (fifo_index_instruction == num_of_cache_lines) {
         fifo_index_instruction = 0;
       }
     } else if (accesstype == data) {
       static uint32_t fifo_index_data = 0;
-      cache[fifo_index_data].tag = access_tag;
+      cache[fifo_index_data] = access_tag;
       fifo_index_data++;
       if (fifo_index_data == num_of_cache_lines) {
         fifo_index_data = 0;
@@ -347,7 +347,6 @@ void access_fa(cache_line_t* cache, uint32_t access_tag, uint32_t num_of_cache_l
     }
     hit_flag = 0;
   }
-
   cache_statistics.accesses++;
 }
 
