@@ -65,15 +65,11 @@ gameConfig game = {
 };
 
 typedef struct {
-    uint8_t red;   // 5 bits
-    uint8_t green; // 6 bits
-    uint8_t blue;  // 5 bits
+    uint8_t red;   // 5 bit value
+    uint8_t green; // 6 bit value
+    uint8_t blue;  // 5 bit value
 } colour;
 
-uint16_t tile_colour;
-uint8_t red;
-uint8_t green;
-uint8_t blue;
 
 int frame_buffer_fd;
 int joystick_fd;
@@ -116,9 +112,6 @@ bool initializeSenseHat() {
     // Clear the screen
     memset((uint16_t *)fb_vmap, 0, finfo_fb.smem_len);
 
-    // Make room for the game to be printed
-    printf("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
-
     return true;
 }
 
@@ -157,11 +150,12 @@ void renderSenseHatMatrix(bool const playfieldChanged) {
 */
 
 static inline void newTile(coord const target) {
-    red = rand() % 32;
-    green = rand() % 64;
-    blue = 31 - red;        // To ensure that the colour is not too dim
-    tile_colour = (red << 11) | (green << 5) | (blue);
-    game.playfield[target.y][target.x].colour = tile_colour;
+    colour tile_colour;
+    tile_colour.red = rand() % 32;
+    tile_colour.green = rand() % 64;
+    tile_colour.blue = 31 - tile_colour.red;    // To ensure that the tile is visible
+    uint16_t tile_colour_comb = (tile_colour.red << 11) | (tile_colour.green << 5) | (tile_colour.blue);
+    game.playfield[target.y][target.x].colour = tile_colour_comb;
 }
 
 static inline void copyTile(coord const to, coord const from) {
