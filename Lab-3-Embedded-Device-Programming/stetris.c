@@ -7,13 +7,14 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <linux/input.h>
+#include <linux/joystick.h>
 #include <linux/fb.h>
 #include <stdbool.h>
 #include <string.h>
 #include <time.h>
 #include <poll.h>
 #include <sys/mman.h>
-
+#include <stdint.h>
 
 
 // The game state can be used to detect what happens on the playfield
@@ -25,7 +26,8 @@
 // If you extend this structure, either avoid pointers or adjust
 // the game logic allocate/deallocate and reset the memory
 typedef struct {
-    bool occupied;
+    // Using the 16-bit colour as an indicator of occupation
+    uint16_t colour;   // i.e. no colour --> false --> not occupied
 } tile;
 
 typedef struct {
@@ -34,124 +36,132 @@ typedef struct {
 } coord;
 
 typedef struct {
-    coord const grid;                                         // playfield bounds
+    coord const grid;                         // playfield bounds
     unsigned long const uSecTickTime;         // tick rate
     unsigned long const rowsPerLevel;         // speed up after clearing rows
-    unsigned long const initNextGameTick; // initial value of nextGameTick
+    unsigned long const initNextGameTick;     // initial value of nextGameTick
 
     unsigned int tiles; // number of tiles played
-    unsigned int rows;    // number of rows cleared
+    unsigned int rows;  // number of rows cleared
     unsigned int score; // game score
     unsigned int level; // game level
 
     tile *rawPlayfield; // pointer to raw memory of the playfield
-    tile **playfield;     // This is the play field array
+    tile **playfield;   // This is the play field array
     unsigned int state;
-    coord activeTile;                                             // current tile
+    coord activeTile;   // current tile
 
     unsigned long tick;                 // incremeted at tickrate, wraps at nextGameTick
-                                                            // when reached 0, next game state calculated
-    unsigned long nextGameTick; // sets when tick is wrapping back to zero
-                                                            // lowers with increasing level, never reaches 0
+                                        // when reached 0, next game state calculated
+    unsigned long nextGameTick;         // sets when tick is wrapping back to zero
+                                        // lowers with increasing level, never reaches 0
 } gameConfig;
 
-
-
 gameConfig game = {
-                                     .grid = {8, 8},
-                                     .uSecTickTime = 10000,
-                                     .rowsPerLevel = 2,
-                                     .initNextGameTick = 50,
+    .grid = {8, 8},
+    .uSecTickTime = 10000,
+    .rowsPerLevel = 2,
+    .initNextGameTick = 50,
 };
 
+typedef struct {
+    uint8_t red;   // 5 bits
+    uint8_t green; // 6 bits
+    uint8_t blue;  // 5 bits
+} colour;
 
-// This function is called on the start of your application
-// Here you can initialize what ever you need for your task
-// return false if something fails, else true
+uint16_t tile_colour;
+uint8_t red;
+uint8_t green;
+uint8_t blue;
+
+int frame_buffer_fd;
+int joystick_fd;
+uint16_t *fb_vmap;
+
+/*  This function is called on the start of your application
+    Here you can initialize what ever you need for your task
+    return false if something fails, else true
+*/
 bool initializeSenseHat() {
-    int framebuffer_fd = open("/dev/fb0", O_RDWR);
-    printf("\n\nframebuffer_fd: %d\n\n", framebuffer_fd);
-    if (framebuffer_fd < 0) {
+    srand(time(NULL));
+
+    // Open frame buffer file descriptor
+    frame_buffer_fd = open("/dev/fb0", O_RDWR);
+    if (frame_buffer_fd < 0) {
         printf("\nError opening framebuffer device\n");
         return false;
     }
 
-    struct fb_var_screeninfo vinfo;
-    struct fb_fix_screeninfo finfo;
+    // Open joystick file descriptor
+    joystick_fd = open("/dev/input/event0", O_RDONLY);
+    if (joystick_fd < 0) {
+        printf("\nError opening joystick device\n");
+        return false;
+    }
 
-    if (ioctl(framebuffer_fd, FBIOGET_FSCREENINFO, &finfo)) {
+    struct fb_fix_screeninfo finfo_fb;
+    if (ioctl(frame_buffer_fd, FBIOGET_FSCREENINFO, &finfo_fb)) {
         printf("\nError reading fixed information\n");
         return false;
     }
 
-    if (ioctl(framebuffer_fd, FBIOGET_VSCREENINFO, &vinfo)) {
-        printf("\nError reading variable information\n");
-        return false;
-    }
-
-    printf("\n\nid: %x", finfo.id);
-    printf("\nsmem_start: %x", finfo.smem_start);
-    printf("\nsmem_len: %d", finfo.smem_len);
-    printf("\ntype: %d", finfo.type);
-    printf("\nvisual: %d", finfo.visual);
-    printf("\nxpanstep: %d", finfo.xpanstep);
-    printf("\nypanstep: %d", finfo.ypanstep);
-    printf("\nywrapstep: %d", finfo.ywrapstep);
-    printf("\nline_length: %d", finfo.line_length);
-    printf("\nmmio_start: %d", finfo.mmio_start);
-    printf("\nmmio_len: %d", finfo.mmio_len);
-    printf("\naccel: %d", finfo.accel);
-
     // Make a virtual memory mapping to the framebuffer
-    char *fb_vmap = (char *)mmap(NULL, finfo.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, framebuffer_fd, 0);
-    //  print all the content in fb_vmap:
-    int i;
-    // fb_vmap[127] = 0b00011111;
-
+    fb_vmap = (uint16_t *)mmap(NULL, finfo_fb.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, frame_buffer_fd, 0);
     if (fb_vmap == MAP_FAILED) {
         printf("\nError mapping framebuffer\n");
         return false;
     }
 
+    // Clear the screen
+    memset((uint16_t *)fb_vmap, 0, finfo_fb.smem_len);
 
-    // mmap(address, finfo.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, framebuffer_fd, 0);
-
-    // Make room for game to overwrite the terminal
-    printf("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
+    // Make room for the game to be printed
+    printf("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
 
     return true;
 }
 
-// This function is called when the application exits
-// Here you can free up everything that you might have opened/allocated
-void freeSenseHat(char* fb_vmap, unsigned int smem_len, int fd) {
+/*  This function is called when the application exits
+    Here you can free up everything that you might have opened/allocated
+*/
+void freeSenseHat(uint16_t* fb_vmap, unsigned int smem_len, int fd) {
     munmap(fb_vmap, smem_len);
     close(fd);
 }
 
-// This function should return the key that corresponds to the joystick press
-// KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, with the respective direction
-// and KEY_ENTER, when the the joystick is pressed
-// !!! when nothing was pressed you MUST return 0 !!!
+/*  This function should return the key that corresponds to the joystick press
+    KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, with the respective direction
+    and KEY_ENTER, when the the joystick is pressed
+    !!! when nothing was pressed you MUST return 0 !!!
+*/
 int readSenseHatJoystick() {
     return 0;
 }
 
 
-// This function should render the gamefield on the LED matrix. It is called
-// every game tick. The parameter playfieldChanged signals whether the game logic
-// has changed the playfield
+/*  This function should render the gamefield on the LED matrix. It is called
+    every game tick. The parameter playfieldChanged signals whether the game logic
+    has changed the playfield */
 void renderSenseHatMatrix(bool const playfieldChanged) {
-    (void) playfieldChanged;
+    if(playfieldChanged){
+        memcpy((uint16_t *)fb_vmap, game.rawPlayfield, 128);
+    }
+
 }
 
 
-// The game logic uses only the following functions to interact with the playfield.
-// if you choose to change the playfield or the tile structure, you might need to
-// adjust this game logic <> playfield interface
+/*  The game logic uses only the following functions to interact with the playfield.
+    if you choose to change the playfield or the tile structure, you might need to
+    adjust this game logic <> playfield interface
+*/
 
 static inline void newTile(coord const target) {
-    game.playfield[target.y][target.x].occupied = true;
+    red = rand() % 32;
+    green = rand() % 64;
+    blue = 31 - red;        // To ensure that the colour is not too dim
+    tile_colour = (red << 11) | (green << 5) | (blue);
+    game.playfield[target.y][target.x].colour = tile_colour;
 }
 
 static inline void copyTile(coord const to, coord const from) {
@@ -160,7 +170,6 @@ static inline void copyTile(coord const to, coord const from) {
 
 static inline void copyRow(unsigned int const to, unsigned int const from) {
     memcpy((void *) &game.playfield[to][0], (void *) &game.playfield[from][0], sizeof(tile) * game.grid.x);
-
 }
 
 static inline void resetTile(coord const target) {
@@ -172,7 +181,7 @@ static inline void resetRow(unsigned int const target) {
 }
 
 static inline bool tileOccupied(coord const target) {
-    return game.playfield[target.y][target.x].occupied;
+    return game.playfield[target.y][target.x].colour;
 }
 
 static inline bool rowOccupied(unsigned int const target) {
@@ -192,9 +201,10 @@ static inline void resetPlayfield() {
     }
 }
 
-// Below here comes the game logic. Keep in mind: You are not allowed to change how the game works!
-// that means no changes are necessary below this line! And if you choose to change something
-// keep it compatible with what was provided to you!
+/*  Below here comes the game logic. Keep in mind: You are not allowed to change how the game works!
+    that means no changes are necessary below this line! And if you choose to change something
+    keep it compatible with what was provided to you!
+*/
 
 bool addNewTile() {
     game.activeTile.y = 0;
@@ -425,9 +435,10 @@ inline unsigned long uSecFromTimespec(struct timespec const ts) {
 int main(int argc, char **argv) {
     (void) argc;
     (void) argv;
-    // This sets the stdin in a special state where each
-    // keyboard press is directly flushed to the stdin and additionally
-    // not outputted to the stdout
+    /*  This sets the stdin in a special state where each
+        keyboard press is directly flushed to the stdin and additionally
+        not outputted to the stdout
+    */
     {
         struct termios ttystate;
         tcgetattr(STDIN_FILENO, &ttystate);
