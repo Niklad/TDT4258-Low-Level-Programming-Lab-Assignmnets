@@ -73,7 +73,7 @@ typedef struct {
 
 int frame_buffer_fd;
 int joystick_fd;
-uint16_t *fb_vmap;
+tile *fb_vmap;
 
 /*  This function is called on the start of your application
     Here you can initialize what ever you need for your task
@@ -82,35 +82,68 @@ uint16_t *fb_vmap;
 bool initializeSenseHat() {
     srand(time(NULL));
 
-    // Open frame buffer file descriptor
-    frame_buffer_fd = open("/dev/fb0", O_RDWR);
-    if (frame_buffer_fd < 0) {
-        printf("\nError opening framebuffer device\n");
-        return false;
-    }
-
-    // Open joystick file descriptor
-    joystick_fd = open("/dev/input/event0", O_RDONLY);
-    if (joystick_fd < 0) {
-        printf("\nError opening joystick device\n");
-        return false;
-    }
-
+    // Open frame buffer with id "RPi-Sense FB"
+    char frame_buffer_path[32];
+    uint8_t i = 0;
     struct fb_fix_screeninfo finfo_fb;
-    if (ioctl(frame_buffer_fd, FBIOGET_FSCREENINFO, &finfo_fb)) {
-        printf("\nError reading fixed information\n");
-        return false;
+    // Iterate through frame buffer devices
+    while (true) {
+        sprintf(frame_buffer_path, "/dev/fb%d", i);
+        // Open frame buffer file descriptor
+        frame_buffer_fd = open(frame_buffer_path, O_RDWR);
+        if (frame_buffer_fd < 0) {
+            i++;
+            continue;
+        }
+        if (ioctl(frame_buffer_fd, FBIOGET_FSCREENINFO, &finfo_fb) < 0) {
+            printf("Error reading fixed information.\n");
+            return false;
+        }
+        if (strcmp(finfo_fb.id, "RPi-Sense FB") == 0) {
+            break;
+        }
+        if (i == 255) {
+            printf("Sense Hat not found.\n");
+            return false;
+        }
+    }
+
+    // Open joystick device with id "Raspberry Pi Sense HAT Joystick"
+    char joystick_path[32];
+    char joystick_name[32];
+    i = 0;
+    // Iterate through frame buffer devices
+    while (true) {
+        sprintf(joystick_path, "/dev/input/event%d", i);
+        // Open frame buffer file descriptor
+        joystick_fd = open(joystick_path, O_RDWR);
+        if (joystick_fd < 0) {
+            printf("\n\nJoystick not found, trying next one. \n\n");
+            i++;
+            continue;
+        }
+        if (ioctl(joystick_fd, EVIOCGNAME(sizeof(joystick_name)), joystick_name) < 0) {
+            printf("Error reading joystick name.\n");
+            return false;
+        }
+        if (strcmp(joystick_name, "Raspberry Pi Sense HAT Joystick") == 0) {
+            break;
+        }
+        if (i == 255) {
+            printf("Joystick not found.\n");
+            return false;
+        }
     }
 
     // Make a virtual memory mapping to the framebuffer
-    fb_vmap = (uint16_t *)mmap(NULL, finfo_fb.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, frame_buffer_fd, 0);
+    fb_vmap = (tile *)mmap(NULL, finfo_fb.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, frame_buffer_fd, 0);
     if (fb_vmap == MAP_FAILED) {
         printf("\nError mapping framebuffer\n");
         return false;
     }
 
     // Clear the screen
-    memset((uint16_t *)fb_vmap, 0, finfo_fb.smem_len);
+    memset((tile *)fb_vmap, 0, finfo_fb.smem_len);
 
     return true;
 }
@@ -118,9 +151,9 @@ bool initializeSenseHat() {
 /*  This function is called when the application exits
     Here you can free up everything that you might have opened/allocated
 */
-void freeSenseHat(uint16_t* fb_vmap, unsigned int smem_len, int fd) {
+void freeSenseHat(tile* fb_vmap, unsigned int smem_len, int frame_buffer_fd) {
     munmap(fb_vmap, smem_len);
-    close(fd);
+    close(frame_buffer_fd);
 }
 
 /*  This function should return the key that corresponds to the joystick press
@@ -129,20 +162,40 @@ void freeSenseHat(uint16_t* fb_vmap, unsigned int smem_len, int fd) {
     !!! when nothing was pressed you MUST return 0 !!!
 */
 int readSenseHatJoystick() {
+    struct pollfd evpoll = {
+             .fd = joystick_fd,
+             .events = POLLIN
+    };
+    struct input_event ev[64];
+	int rd;
+    if (poll(&evpoll, 1, 0)){
+        rd = read(evpoll.fd, ev, sizeof(struct input_event) * 64);
+        for (int i = 0; i < rd / sizeof(struct input_event); i++) {
+            if (ev[i].type == EV_KEY && (ev[i].value == 1 || ev[i].value == 2)) {
+                return ev[i].code;
+            }
+        }
+    }
     return 0;
 }
-
 
 /*  This function should render the gamefield on the LED matrix. It is called
     every game tick. The parameter playfieldChanged signals whether the game logic
     has changed the playfield */
 void renderSenseHatMatrix(bool const playfieldChanged) {
     if(playfieldChanged){
-        memcpy((uint16_t *)fb_vmap, game.rawPlayfield, 128);
+        memcpy((tile *)fb_vmap, game.rawPlayfield, 128);
     }
-
 }
 
+void flashyflashy(){
+    for(int i = 0; i < 10; i++) {
+        memset((tile *)fb_vmap, 0, 128);
+        usleep(100000);
+        memcpy((tile *)fb_vmap, game.rawPlayfield, 128);
+        usleep(100000);
+    }
+}
 
 /*  The game logic uses only the following functions to interact with the playfield.
     if you choose to change the playfield or the tile structure, you might need to
@@ -152,8 +205,8 @@ void renderSenseHatMatrix(bool const playfieldChanged) {
 static inline void newTile(coord const target) {
     colour tile_colour;
     tile_colour.red = rand() % 32;
-    tile_colour.green = rand() % 64;
-    tile_colour.blue = 31 - tile_colour.red;    // To ensure that the tile is visible
+    tile_colour.blue = rand() % 32;
+    tile_colour.green = 63 - tile_colour.red - tile_colour.blue;    // To ensure that the tile is visible
     uint16_t tile_colour_comb = (tile_colour.red << 11) | (tile_colour.green << 5) | (tile_colour.blue);
     game.playfield[target.y][target.x].colour = tile_colour_comb;
 }
@@ -282,8 +335,14 @@ void newGame() {
 }
 
 void gameOver() {
+    static bool flashy = false;
     game.state = GAMEOVER;
     game.nextGameTick = game.initNextGameTick;
+    if(flashy){
+        flashyflashy();
+        flashy = true;
+    }
+    flashy = true;
 }
 
 
@@ -368,7 +427,7 @@ int readKeyboard() {
             goto exit;
         lkey = fgetc(stdin);
     }
- exit:
+    exit:
         switch (lkey) {
             case 10: return KEY_ENTER;
             case 65: return KEY_UP;
