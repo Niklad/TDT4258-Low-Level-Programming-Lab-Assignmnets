@@ -340,7 +340,7 @@ void gameOver() {
     game.nextGameTick = game.initNextGameTick;
     if(flashy){
         flashyflashy();
-        flashy = true;
+        return;
     }
     flashy = true;
 }
