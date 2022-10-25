@@ -70,10 +70,11 @@ typedef struct {
     uint8_t blue;  // 5 bit value
 } colour;
 
-
 int frame_buffer_fd;
+struct fb_fix_screeninfo finfo_fb;
 int joystick_fd;
 tile *fb_vmap;
+
 
 /*  This function is called on the start of your application
     Here you can initialize what ever you need for your task
@@ -85,7 +86,6 @@ bool initializeSenseHat() {
     // Open frame buffer with id "RPi-Sense FB"
     char frame_buffer_path[32];
     uint8_t i = 0;
-    struct fb_fix_screeninfo finfo_fb;
     // Iterate through frame buffer devices
     while (true) {
         sprintf(frame_buffer_path, "/dev/fb%d", i);
@@ -151,9 +151,10 @@ bool initializeSenseHat() {
 /*  This function is called when the application exits
     Here you can free up everything that you might have opened/allocated
 */
-void freeSenseHat(tile* fb_vmap, unsigned int smem_len, int frame_buffer_fd) {
-    munmap(fb_vmap, smem_len);
+void freeSenseHat() {
+    munmap(fb_vmap, finfo_fb.smem_len);
     close(frame_buffer_fd);
+    close(joystick_fd);
 }
 
 /*  This function should return the key that corresponds to the joystick press
@@ -549,7 +550,7 @@ int main(int argc, char **argv) {
         game.tick = (game.tick + 1) % game.nextGameTick;
     }
 
-    // freeSenseHat();
+    freeSenseHat();
     free(game.playfield);
     free(game.rawPlayfield);
 
